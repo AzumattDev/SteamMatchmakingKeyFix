@@ -1,6 +1,6 @@
 {
   "name": "SteamMatchmakingKeyFix",
-  "version_number": "1.0.0",
+  "version_number": "1.0.1",
   "website_url": "https://github.com/AzumattDev/SteamMatchmakingKeyFix",
   "description": "Prevents that pesky vanilla server list error, and probably more as it's a generic patch. Doesn't log anything, just prevents. Hildir update might fix it, but this is a workaround for now.",
   "dependencies": [

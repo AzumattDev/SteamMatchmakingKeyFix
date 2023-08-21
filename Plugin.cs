@@ -17,7 +17,7 @@ namespace SteamMatchmakingKeyFix
     public class SteamMatchmakingKeyFixPlugin : BaseUnityPlugin
     {
         internal const string ModName = "SteamMatchmakingKeyFix";
-        internal const string ModVersion = "1.0.0";
+        internal const string ModVersion = "1.0.1";
         internal const string Author = "Azumatt";
         private const string ModGUID = Author + "." + ModName;
         private static string ConfigFileName = ModGUID + ".cfg";
@@ -37,6 +37,21 @@ namespace SteamMatchmakingKeyFix
         public void Awake()
         {
             PreventError = Config.Bind("1 - General", "Prevent Error", Toggle.On, "If on, the error that would otherwise be printed, is masked and will not be shown.");
+            PreventError.SettingChanged += (sender, args) =>
+            {
+                MethodInfo targetMethod = AccessTools.Method(typeof(ZSteamMatchmaking), "<OnServerResponded>g__TryConvertTagsStringToDictionary|37_0");
+                MethodInfo transpilerMethod = AccessTools.Method(typeof(ZSteamMatchmaking_OnServerResponded_Patch), "Transpiler");
+                if (PreventError.Value == Toggle.Off)
+                {
+                    // Unpatch the transpiler method if the toggle is off
+                    _harmony.Unpatch(targetMethod, HarmonyPatchType.Transpiler, _harmony.Id);
+                }
+                else
+                {
+                    // Patch the transpiler method if the toggle is on
+                    _harmony.Patch(targetMethod, transpiler: new HarmonyMethod(transpilerMethod));
+                }
+            };
 
 
             Assembly assembly = Assembly.GetExecutingAssembly();
@@ -76,22 +91,31 @@ namespace SteamMatchmakingKeyFix
         }
     }
 
-    [HarmonyPatch(typeof(Dictionary<string, string>), "Add")]
-    public static class DictionaryAddPatch
+    [HarmonyPatch(typeof(ZSteamMatchmaking), "<OnServerResponded>g__TryConvertTagsStringToDictionary|37_0")]
+    public static class ZSteamMatchmaking_OnServerResponded_Patch
     {
-        /* So I tried to transpile the original method, but until Hildir update, that's very difficult because of the compiler generated code inside it.
-         Hildir update might also fix the issue, so we can wait and see.
-         I also tried to patch the method (ZSteamMatchmaking.OnServerResponded) multiple ways but that didn't work well either.
-         This is the next best thing I could come up with, it's not perfect, but it works. Might prevent other errors from being printed too.
-         */
-        public static bool Prefix(Dictionary<string, string> __instance, string key, string value)
+        // Special thank you to KG for finding a better way to fix this issue compared to version 1.0.0
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> code)
         {
-            if (!__instance.ContainsKey(key) || SteamMatchmakingKeyFixPlugin.PreventError.Value != SteamMatchmakingKeyFixPlugin.Toggle.On) return true;
-#if DEBUG
-            SteamMatchmakingKeyFixPlugin.SteamMatchmakingKeyFixLogger.LogDebug($"Duplicate key '{key}' with value '{value}' was prevented from being added.");
-#endif
-            // Key already exists, skip adding it
-            return false;
+            if (SteamMatchmakingKeyFixPlugin.PreventError.Value == SteamMatchmakingKeyFixPlugin.Toggle.On)
+            {
+                MethodInfo toReplace = AccessTools.Method(typeof(Dictionary<string, string>), "set_Item");
+                MethodInfo toFind = AccessTools.Method(typeof(Dictionary<string, string>), "Add");
+                foreach (var instruction in code)
+                {
+                    if (instruction.opcode == OpCodes.Callvirt && (MethodInfo)instruction.operand == toFind)
+                        instruction.operand = toReplace;
+
+                    yield return instruction;
+                }
+            }
+            else
+            {
+                foreach (var instruction in code)
+                {
+                    yield return instruction;
+                }
+            }
         }
     }
 }
